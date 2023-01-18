@@ -7,7 +7,7 @@ typedef enum {
 } adxl345_status_t;
 
 #define I2C_BASE_ADDRESS            OPENCORES_I2C_0_BASE
-#define ADXL345_NB_SAMPLES          10
+#define ADXL345_NB_SAMPLES          100.0
 #define ADXL345_BASE_ADDRESS        0x53
 
 #define ADXL345_OFSX_ADDRESS        0x1E
@@ -21,6 +21,9 @@ typedef enum {
 #define ADXL345_Z_AXIS_0_ADDRESS    0x36
 #define ADXL345_Z_AXIS_1_ADDRESS    0x37
 #define ADXL345_DATA_FORMAT_ADDRESS 0x31
+
+// Constant Scale factor of the Offset registers => 15.6 mg/LSB
+#define ADXL345_SF_OFFSET_REG 15.6
 
 #ifndef ADXL345_DEBUG
 #define I2C_START_WRITE(BASE_ADDRESS, DEV_ADRESS) \

@@ -5,9 +5,12 @@
 #include "altera_avalon_pio_regs.h"
 #include <unistd.h>
 #include <alt_types.h>
+#include <stdio.h>
 
 // #define ADXL345_DEBUG
 #include "ADXL345.h"
+
+#define POW2(exponent) (float) (0x00000001 << exponent)
 
 // TODO: when started on, configure ADXL in +-2g mode, 10-bit resolution, right justify by default
 // TODO: put every alt_printf between #ifndef...#endif
@@ -101,33 +104,48 @@ adxl345_status_t ADXL345_ACC11_READ(alt_u32 base_address, alt_u32 reg_address, a
 }
 
 // ADXL345 Offset Calibration
-adxl345_status_t ADXL345_OFF_CBR(alt_8 *offset_x, alt_8 *offset_y, alt_8 *offset_z)
+adxl345_status_t ADXL345_OFF_CBR(float scale_factor_read, alt_8 *offset_x, alt_8 *offset_y, alt_8 *offset_z)
 {
-    alt_32 acc_x = 0;
-    alt_32 acc_y = 0;
-    alt_32 acc_z = 0;
-    alt_16 data  = 0;
+    double acc_x = 0;
+    double acc_y = 0;
+    double acc_z = 0;
+    alt_16 data = 0;
 
-    for (alt_u8 i = 0; i < ADXL345_NB_SAMPLES; i++) {
+    for (alt_u8 i = 0; i < (alt_u8) ADXL345_NB_SAMPLES; i++) {
         ADXL345_ACC11_READ(ADXL345_BASE_ADDRESS, ADXL345_X_AXIS_0_ADDRESS, &data);
-        acc_x += (alt_32) data;
+        acc_x += (double) data;
         usleep(5);
         ADXL345_ACC11_READ(ADXL345_BASE_ADDRESS, ADXL345_Y_AXIS_0_ADDRESS, &data);
-        acc_y += (alt_32) data;
+        acc_y += (double) data;
         usleep(5);
         ADXL345_ACC11_READ(ADXL345_BASE_ADDRESS, ADXL345_Z_AXIS_0_ADDRESS, &data);
-        acc_z += (alt_32) data;
+        acc_z += (double) data;
         usleep(5);
     }
 
-    alt_printf("data acc_x: %x\n", acc_x);
-    alt_printf("data acc_y: %x\n", acc_y);
-    alt_printf("data acc_z: %x\n", acc_z);
+    float mean_x = (acc_x/(float)ADXL345_NB_SAMPLES)*scale_factor_read;
+    float mean_y = (acc_y/(float)ADXL345_NB_SAMPLES)*scale_factor_read;
+    float mean_z = (acc_z/(float)ADXL345_NB_SAMPLES)*scale_factor_read;
 
-    // CHECK: signedness
-    *offset_x = (((alt_8) ( acc_x/ADXL345_NB_SAMPLES)))/4;
-    *offset_y = (((alt_8) ( acc_y/ADXL345_NB_SAMPLES)))/4;
-    *offset_z = (alt_8) ((acc_z/ADXL345_NB_SAMPLES) + 0xff00);
+    float offset_xf =    0.f - mean_x;
+    float offset_yf =    0.f - mean_y;
+    // 1000.f is it always the case ?
+    float offset_zf = 1000.f - mean_z;
+
+    printf("offset_xf: %f\n", offset_xf);
+    printf("offset_yf: %f\n", offset_yf);
+    printf("offset_zf: %f\n", offset_zf);
+
+    if (!(offset_x && offset_y && offset_z))
+        return ADXL345_ERROR;
+
+    *offset_x = (alt_8) (offset_xf / ADXL345_SF_OFFSET_REG);
+    *offset_y = (alt_8) (offset_yf / ADXL345_SF_OFFSET_REG);
+    *offset_z = (alt_8) (offset_zf / ADXL345_SF_OFFSET_REG);
+
+    alt_printf("offset_x: %x\n", *offset_x);
+    alt_printf("offset_y: %x\n", *offset_y);
+    alt_printf("offset_z: %x\n", *offset_z);
 
     return ADXL345_SUCCESS;
 }
@@ -144,8 +162,39 @@ int main()
     // Configure ADXL345 in measure mode
     ADXL345_BYTE_WRITE(ADXL345_BASE_ADDRESS, ADXL345_POWER_CTL_ADDRESS, 0x08);
 
+    // Read the Data Format register
     if (ADXL345_BYTE_READ(ADXL345_BASE_ADDRESS, ADXL345_DATA_FORMAT_ADDRESS, &u_buffer_8))
         alt_printf("read data_format: %x\n", u_buffer_8);
+
+    // g Range setting respects the following LUT:
+    //  D1  | D0  |  g Range
+    // -----|-----|----------
+    //   0  |  0  |   +-  2g
+    //   0  |  1  |   +-  4g
+    //   1  |  0  |   +-  8g
+    //   1  |  1  |   +- 16g
+    alt_u8 g_range_setting = 0b00010 << (u_buffer_8 & 0b11);
+    alt_u8 full_res = (0b1000 & u_buffer_8) >> 3;
+    // unit: mg/LSB
+    float scale_factor = 0;
+
+    // Compute scale factor
+    // 16-bit mode
+    if (full_res)
+        scale_factor = (g_range_setting*2.0*1000.0)/POW2(16);
+    // 10-bit mode
+    else
+        scale_factor = (g_range_setting*2.0*1000.0)/POW2(10);
+    
+    printf("computed scale_factor: %f\n", scale_factor);
+
+    alt_8 offset_x, offset_y, offset_z;
+    ADXL345_OFF_CBR(scale_factor, &offset_x, &offset_y, &offset_z);
+
+    // Writing in the offset registers
+    ADXL345_BYTE_WRITE(ADXL345_BASE_ADDRESS, ADXL345_OFSX_ADDRESS, offset_x);
+    ADXL345_BYTE_WRITE(ADXL345_BASE_ADDRESS, ADXL345_OFSY_ADDRESS, offset_y);
+    ADXL345_BYTE_WRITE(ADXL345_BASE_ADDRESS, ADXL345_OFSZ_ADDRESS, offset_z);
 
     /*
         cf datasheet:        
@@ -154,21 +203,26 @@ int main()
     */
     usleep(5);
 
-    while (1) 
+    while (1)
     {
-        if (ADXL345_ACC11_READ(ADXL345_BASE_ADDRESS, ADXL345_X_AXIS_0_ADDRESS, &s_buffer_16))
-            alt_printf("read x: %x\n", s_buffer_16);
-
+        alt_printf("----------------\n");
+        if (ADXL345_ACC11_READ(ADXL345_BASE_ADDRESS, ADXL345_X_AXIS_0_ADDRESS, &s_buffer_16)) {
+            float x_acc = ((float)s_buffer_16)*scale_factor;
+            printf("x: %f mg\n", x_acc);
+        }
         usleep(5);
 
-        if (ADXL345_ACC11_READ(ADXL345_BASE_ADDRESS, ADXL345_Y_AXIS_0_ADDRESS, &s_buffer_16))
-            alt_printf("read y: %x\n", s_buffer_16);
-
+        if (ADXL345_ACC11_READ(ADXL345_BASE_ADDRESS, ADXL345_Y_AXIS_0_ADDRESS, &s_buffer_16)) {
+            float y_acc = ((float)s_buffer_16)*scale_factor;
+            printf("y: %f mg\n", y_acc);
+        }
         usleep(5);
 
-        if (ADXL345_ACC11_READ(ADXL345_BASE_ADDRESS, ADXL345_Z_AXIS_0_ADDRESS, &s_buffer_16))
-            alt_printf("read z: %x\n", s_buffer_16);
-
+        if (ADXL345_ACC11_READ(ADXL345_BASE_ADDRESS, ADXL345_Z_AXIS_0_ADDRESS, &s_buffer_16)) {
+            float z_acc = ((float)s_buffer_16)*scale_factor;
+            printf("z: %f mg\n", z_acc);
+        }
+        alt_printf("----------------\n");
         usleep(1000000);
     }
 
