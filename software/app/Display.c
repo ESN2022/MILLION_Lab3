@@ -45,34 +45,34 @@ void display_calibration_start()
 void display_calibration(alt_8 offset_x, alt_8 offset_y, alt_8 offset_z)
 {
     alt_u8 bcd_x = 0;
-    alt_u8 dis_off_x = DISPLAY_SYM_BLANK;
+    alt_u8 sign_off_x = DISPLAY_SYM_BLANK;
     alt_u8 bcd_y = 0;
-    alt_u8 dis_off_y = DISPLAY_SYM_BLANK;
+    alt_u8 sign_off_y = DISPLAY_SYM_BLANK;
     alt_u8 bcd_z = 0;
-    alt_u8 dis_off_z = DISPLAY_SYM_BLANK;
+    alt_u8 sign_off_z = DISPLAY_SYM_BLANK;
 
     bcd_x = (alt_u8) double_dabble((alt_u32) offset_x);
     if (offset_x < 0) {
         offset_x = -offset_x;
-        dis_off_x = DISPLAY_SYM_MINUS;
+        sign_off_x = DISPLAY_SYM_MINUS;
     }
 
     bcd_y = (alt_u8) double_dabble((alt_u32) offset_y);
     if (offset_y < 0) {
         offset_y = -offset_y;
-        dis_off_y = DISPLAY_SYM_MINUS;
+        sign_off_y = DISPLAY_SYM_MINUS;
     }
 
     bcd_z = (alt_u8) double_dabble((alt_u32) offset_z);
     if (offset_z < 0) {
         offset_z = -offset_z;
-        dis_off_z = DISPLAY_SYM_MINUS;
+        sign_off_z = DISPLAY_SYM_MINUS;
     }
 
     alt_u32 display = DISPLAY_COMMA(C_OFF, C_ON, C_OFF, C_ON, C_OFF, C_ON) |
-                      DISPLAY_EXTDIGITS(dis_off_x, bcd_x, 
-                                        dis_off_y, bcd_y, 
-                                        dis_off_z, bcd_z);
+                      DISPLAY_EXTDIGITS(sign_off_x, bcd_x, 
+                                        sign_off_y, bcd_y, 
+                                        sign_off_z, bcd_z);
 
     IOWR_ALTERA_AVALON_PIO_DATA(PIO_DISPLAYERS_BASE, display & DISPLAY_MASK);
 }
